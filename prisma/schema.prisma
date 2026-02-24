@@ -1,0 +1,191 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CONTABIL
+  AUDIT
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionKind {
+  NORMAL
+  OPENING
+  TRANSFER
+  ADJUSTMENT
+}
+
+enum Currency {
+  RON
+  EUR
+  GBP
+  RUB
+}
+
+enum periodBudget {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum statusBudget {
+  ACTIVE
+  ARCHIVED
+}
+
+enum budgetPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+model User {
+  id           Int    @id @default(autoincrement())
+  name         String
+  email        String @unique
+  passwordHash String @map("password")
+  roles        Role[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallets      Wallet[]
+  transactions Transaction[]
+  budgets      Budget[]
+}
+
+model Wallet {
+  id       Int    @id @default(autoincrement())
+  publicId String @default(uuid())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  name           String
+  currency       Currency
+  balanceMinor   Int          @default(0)
+  allowOverdraft Boolean      @default(false)
+  status         statusBudget @default(ACTIVE)
+  archivedAt     DateTime?    @db.Timestamptz
+  isDefault      Boolean      @default(false)
+  description    String?
+
+  orderIndex Int?
+
+  budgets   BudgetWallet[]
+  createdAt DateTime       @default(now()) @db.Timestamptz
+  updatedAt DateTime       @updatedAt @db.Timestamptz
+
+  transactions Transaction[]
+
+  @@unique([userId, name, status])
+  @@unique([publicId])
+  @@index([userId, status])
+  @@index([userId, currency])
+}
+
+model Transaction {
+  id Int @id @default(autoincrement())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  walletId Int
+  wallet   Wallet @relation(fields: [walletId], references: [id])
+
+  amountMinor Int
+  currency    Currency
+  type        TransactionType
+  kind        TransactionKind @default(NORMAL)
+
+  transferGroupId String? @db.Uuid
+
+  date        DateTime @default(now()) @db.Timestamptz
+  description String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  @@index([userId, date])
+  @@index([userId, walletId, date])
+  @@index([transferGroupId])
+}
+
+model Budget {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  user   User @relation(fields: [userId], references: [id])
+
+  name             String
+  limitAmountMinor Int
+  currency         Currency
+
+  status      statusBudget @default(ACTIVE)
+  rollover    Boolean      @default(false)
+  description String?
+
+  anchorDayOfMonth Int?
+  anchorWeekday    Int?
+
+  period periodBudget
+
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  periods BudgetPeriod[]
+  wallets BudgetWallet[]
+
+  @@unique([userId, name, status])
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model BudgetPeriod {
+  id Int @id @default(autoincrement())
+
+  budgetId Int
+  budget   Budget @relation(fields: [budgetId], references: [id])
+
+  periodStart DateTime @db.Timestamptz
+  periodEnd   DateTime @db.Timestamptz
+
+  limitAmountMinor Int
+  carriedOverMinor Int @default(0)
+
+  spentMinor Int @default(0)
+
+  status budgetPeriodStatus @default(OPEN)
+
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  @@unique([budgetId, periodStart, periodEnd])
+  @@index([budgetId, periodStart, periodEnd])
+}
+
+model BudgetWallet {
+  budgetId Int
+  walletId Int
+
+  budget Budget @relation(fields: [budgetId], references: [id])
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@id([budgetId, walletId])
+  @@index([walletId])
+}
